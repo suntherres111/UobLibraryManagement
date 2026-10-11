@@ -1,0 +1,48 @@
+@baseUrl = http://localhost:5080
+
+### List books
+GET {{baseUrl}}/api/books?search=Clean&availableOnly=true
+
+### Add a book
+POST {{baseUrl}}/api/books
+Content-Type: application/json
+
+{
+  "isbn": "978-0134757599",
+  "title": "Refactoring",
+  "author": "Martin Fowler",
+  "publisher": "Addison-Wesley",
+  "genre": "Software Engineering",
+  "publishedYear": 2018,
+  "totalCopies": 2
+}
+
+### Register a member
+POST {{baseUrl}}/api/members
+Content-Type: application/json
+
+{
+  "firstName": "Siti",
+  "lastName": "Aminah",
+  "email": "siti.aminah@example.com",
+  "phoneNumber": "+60123456789",
+  "membershipType": "Premium"
+}
+
+### Borrow a book
+POST {{baseUrl}}/api/loans
+Content-Type: application/json
+
+{
+  "bookId": 1,
+  "memberId": 1
+}
+
+### Return a book
+POST {{baseUrl}}/api/loans/1/return
+
+### Overdue loans
+GET {{baseUrl}}/api/loans?status=Overdue
+
+### Member borrowing history
+GET {{baseUrl}}/api/members/1/loans

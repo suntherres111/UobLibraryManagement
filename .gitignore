@@ -1,0 +1,14 @@
+## .NET / Visual Studio
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userprefs
+.idea/
+*.swp
+TestResults/
+coverage*/
+*.db
+*.db-shm
+*.db-wal
