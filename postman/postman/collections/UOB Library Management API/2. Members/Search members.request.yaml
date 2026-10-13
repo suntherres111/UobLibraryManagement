@@ -1,0 +1,14 @@
+$kind: http-request
+url: "{{baseUrl}}/api/members?search={{runId}}&page=1&pageSize=10"
+method: GET
+queryParams:
+  search: "{{runId}}"
+  page: "1"
+  pageSize: "10"
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 200 OK", () => pm.response.to.have.status(200));
+      pm.test("Finds the 3 members created in this run", () => pm.expect(pm.response.json().totalCount).to.eql(3));
+    language: text/javascript
+order: 5000

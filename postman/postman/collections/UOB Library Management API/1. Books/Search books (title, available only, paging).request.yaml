@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{baseUrl}}/api/books?search={{runId}}&availableOnly=true&page=1&pageSize=10"
+method: GET
+queryParams:
+  search: "{{runId}}"
+  availableOnly: "true"
+  page: "1"
+  pageSize: "10"
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 200 OK", () => pm.response.to.have.status(200));
+      const j = pm.response.json();
+      pm.test("Paged result shape", () => { pm.expect(j).to.have.keys("items", "page", "pageSize", "totalCount", "totalPages"); });
+      pm.test("Finds exactly the book created in this run", () => pm.expect(j.totalCount).to.eql(1));
+    language: text/javascript
+order: 3000

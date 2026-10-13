@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{baseUrl}}/api/books/999999999"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 404 Not Found", () => pm.response.to.have.status(404));
+      pm.test("Error code is NOT_FOUND", () => pm.expect(pm.response.json().code).to.eql("NOT_FOUND"));
+      pm.test("Response is ProblemDetails", () => {
+          const j = pm.response.json();
+          pm.expect(j).to.have.property("title");
+          pm.expect(j).to.have.property("traceId");
+      });
+    language: text/javascript
+order: 18000

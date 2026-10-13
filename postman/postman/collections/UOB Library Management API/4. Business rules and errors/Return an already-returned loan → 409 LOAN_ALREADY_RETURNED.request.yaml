@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{baseUrl}}/api/loans/{{loanId}}/return"
+method: POST
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 409 Conflict", () => pm.response.to.have.status(409));
+      pm.test("Error code is LOAN_ALREADY_RETURNED", () => pm.expect(pm.response.json().code).to.eql("LOAN_ALREADY_RETURNED"));
+      pm.test("Response is ProblemDetails", () => {
+          const j = pm.response.json();
+          pm.expect(j).to.have.property("title");
+          pm.expect(j).to.have.property("traceId");
+      });
+    language: text/javascript
+order: 9000

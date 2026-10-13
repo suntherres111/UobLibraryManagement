@@ -1,0 +1,4 @@
+$kind: collection
+name: "3. Loans: happy path"
+description: Borrow, check stock, list, history and return.
+order: 4000

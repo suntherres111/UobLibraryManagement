@@ -1,0 +1,25 @@
+$kind: http-request
+url: "{{baseUrl}}/api/books/{{bookAId}}"
+method: PUT
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "title": "Postman Test Book A (2nd edition) {{runId}}",
+      "author": "Postman Runner",
+      "publisher": "Test Publisher",
+      "genre": "Software Engineering",
+      "publishedYear": 2025,
+      "totalCopies": 3
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 200 OK", () => pm.response.to.have.status(200));
+      const j = pm.response.json();
+      pm.test("Stock increased to 3", () => { pm.expect(j.totalCopies).to.eql(3); pm.expect(j.availableCopies).to.eql(3); });
+      pm.test("UpdatedAtUtc is set", () => pm.expect(j.updatedAtUtc).to.not.be.null);
+    language: text/javascript
+order: 4000

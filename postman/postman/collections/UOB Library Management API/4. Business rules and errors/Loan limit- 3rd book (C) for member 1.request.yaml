@@ -1,0 +1,21 @@
+$kind: http-request
+name: "Loan limit: 3rd book (C) for member 1"
+description: "Member 1 now holds 3 books (B, A, C): the Standard limit."
+url: "{{baseUrl}}/api/loans"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "bookId": {{bookCId}},
+      "memberId": {{member1Id}}
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 201 Created", () => pm.response.to.have.status(201));
+      if (pm.response.code < 300) { pm.collectionVariables.set("loanCId", pm.response.json().id); }
+    language: text/javascript
+order: 7000

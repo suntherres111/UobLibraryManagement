@@ -1,0 +1,26 @@
+$kind: http-request
+name: "Borrow book A (Premium member: 30-day loan)"
+url: "{{baseUrl}}/api/loans"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "bookId": {{bookAId}},
+      "memberId": {{premiumMemberId}}
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 201 Created", () => pm.response.to.have.status(201));
+      const j = pm.response.json();
+      pm.test("Status is Active", () => pm.expect(j.status).to.eql("Active"));
+      pm.test("Due date = borrow date + 30 days", () => {
+          const days = (new Date(j.dueAtUtc) - new Date(j.borrowedAtUtc)) / 86400000;
+          pm.expect(Math.round(days)).to.eql(30);
+      });
+      if (pm.response.code < 300) { pm.collectionVariables.set("premiumLoanId", pm.response.json().id); }
+    language: text/javascript
+order: 6000

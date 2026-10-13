@@ -1,0 +1,30 @@
+$kind: http-request
+description: Passes the DTO's length check, then the Book entity rejects the format (domain validation).
+url: "{{baseUrl}}/api/books"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "isbn": "978-ABC-123456",
+      "title": "Postman Test Book Bad ISBN {{runId}}",
+      "author": "Postman Runner",
+      "publisher": "Test Publisher",
+      "genre": "Software Engineering",
+      "publishedYear": 2024,
+      "totalCopies": 1
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 400 Bad Request", () => pm.response.to.have.status(400));
+      pm.test("Error code is VALIDATION_ERROR", () => pm.expect(pm.response.json().code).to.eql("VALIDATION_ERROR"));
+      pm.test("Response is ProblemDetails", () => {
+          const j = pm.response.json();
+          pm.expect(j).to.have.property("title");
+          pm.expect(j).to.have.property("traceId");
+      });
+    language: text/javascript
+order: 15000

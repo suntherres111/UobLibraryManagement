@@ -1,0 +1,31 @@
+$kind: collection
+description: |-
+  End-to-end tests for the Library Management Web API (.NET 8).
+
+  1. Start the API: `dotnet run --project src/LibraryManagement.Api` (http://localhost:5080).
+  2. Select the **UOB Library API - Local** environment.
+  3. Run the whole collection with the **Collection Runner**, in order.
+
+  Each run creates its own books and members (unique ISBNs and emails from `runId`), so it can be run repeatedly and doesn't depend on the seed data. Ids are passed between requests through collection variables.
+variables:
+  baseUrl: http://localhost:5080
+  runId: ""
+  isbnFormatted: ""
+  isbnNormalized: ""
+  bookAIsbn: ""
+  bookAId: ""
+  bookBId: ""
+  bookCId: ""
+  bookDId: ""
+  member1Email: ""
+  member2Email: ""
+  member3Email: ""
+  member1Id: ""
+  member2Id: ""
+  premiumMemberId: ""
+  loanId: ""
+  premiumLoanId: ""
+  loanBId: ""
+  loanAId: ""
+  loanCId: ""
+  unknownId: "999999999"

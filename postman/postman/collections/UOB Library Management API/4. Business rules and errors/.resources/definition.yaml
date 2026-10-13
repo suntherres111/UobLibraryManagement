@@ -1,0 +1,3 @@
+$kind: collection
+description: Each request expects a specific HTTP status and error code.
+order: 5000

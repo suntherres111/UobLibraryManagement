@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{baseUrl}}/api/loans/{{premiumLoanId}}/return"
+method: POST
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 200 OK", () => pm.response.to.have.status(200));
+      pm.test("Status is Returned", () => pm.expect(pm.response.json().status).to.eql("Returned"));
+    language: text/javascript
+order: 9000

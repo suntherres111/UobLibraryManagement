@@ -1,0 +1,13 @@
+$kind: http-request
+description: Overdue can't be created from Postman without waiting 14+ days, so this only checks that the filter works. Overdue rules are covered by the automated tests (TestClock).
+url: "{{baseUrl}}/api/loans?status=Overdue"
+method: GET
+queryParams:
+  status: Overdue
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 200 OK", () => pm.response.to.have.status(200));
+      pm.test("Every item is Overdue", () => pm.response.json().items.forEach(l => pm.expect(l.status).to.eql("Overdue")));
+    language: text/javascript
+order: 11000

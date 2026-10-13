@@ -1,0 +1,27 @@
+$kind: http-request
+description: "Same email as member 1 (different letter case): emails are compared after normalising to lower case."
+url: "{{baseUrl}}/api/members"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "firstName": "Copy",
+      "lastName": "Cat",
+      "email": "{{member1Email}}",
+      "membershipType": "Standard"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 409 Conflict", () => pm.response.to.have.status(409));
+      pm.test("Error code is DUPLICATE_EMAIL", () => pm.expect(pm.response.json().code).to.eql("DUPLICATE_EMAIL"));
+      pm.test("Response is ProblemDetails", () => {
+          const j = pm.response.json();
+          pm.expect(j).to.have.property("title");
+          pm.expect(j).to.have.property("traceId");
+      });
+    language: text/javascript
+order: 14000

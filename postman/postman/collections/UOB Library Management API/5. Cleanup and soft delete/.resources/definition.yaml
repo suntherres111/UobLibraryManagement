@@ -1,0 +1,3 @@
+$kind: collection
+description: Returns the remaining loans, then shows that retire/deactivate are soft deletes.
+order: 6000

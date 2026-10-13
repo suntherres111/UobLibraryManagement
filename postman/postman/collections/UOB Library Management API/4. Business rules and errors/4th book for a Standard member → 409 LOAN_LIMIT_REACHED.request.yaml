@@ -1,0 +1,24 @@
+$kind: http-request
+url: "{{baseUrl}}/api/loans"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "bookId": {{bookDId}},
+      "memberId": {{member1Id}}
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 409 Conflict", () => pm.response.to.have.status(409));
+      pm.test("Error code is LOAN_LIMIT_REACHED", () => pm.expect(pm.response.json().code).to.eql("LOAN_LIMIT_REACHED"));
+      pm.test("Response is ProblemDetails", () => {
+          const j = pm.response.json();
+          pm.expect(j).to.have.property("title");
+          pm.expect(j).to.have.property("traceId");
+      });
+    language: text/javascript
+order: 8000

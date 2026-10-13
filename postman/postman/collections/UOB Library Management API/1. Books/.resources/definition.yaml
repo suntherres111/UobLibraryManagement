@@ -1,0 +1,3 @@
+$kind: collection
+description: Create, read, search and update books. Creates books A–D used by later folders.
+order: 2000

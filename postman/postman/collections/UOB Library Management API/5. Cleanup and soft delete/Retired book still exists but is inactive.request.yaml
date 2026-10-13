@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{baseUrl}}/api/books/{{bookDId}}"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 200 OK", () => pm.response.to.have.status(200));
+      pm.test("IsActive is false (history kept)", () => pm.expect(pm.response.json().isActive).to.be.false);
+    language: text/javascript
+order: 5000

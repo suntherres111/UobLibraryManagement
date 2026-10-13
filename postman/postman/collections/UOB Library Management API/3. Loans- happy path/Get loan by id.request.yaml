@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{baseUrl}}/api/loans/{{loanId}}"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 200 OK", () => pm.response.to.have.status(200));
+      const j = pm.response.json();
+      pm.test("Loan is Active and not overdue", () => { pm.expect(j.status).to.eql("Active"); pm.expect(j.daysOverdue).to.eql(0); });
+      pm.test("Includes book and member names", () => { pm.expect(j.bookTitle).to.include("Postman Test Book A"); pm.expect(j.memberName).to.eql("Alice Postman"); });
+    language: text/javascript
+order: 2000

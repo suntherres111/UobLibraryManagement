@@ -1,0 +1,22 @@
+$kind: http-request
+url: "{{baseUrl}}/api/members/{{member1Id}}"
+method: PUT
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "firstName": "Alice",
+      "lastName": "Postman",
+      "email": "{{member1Email}}",
+      "phoneNumber": "+60199999999",
+      "membershipType": "Standard"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 200 OK", () => pm.response.to.have.status(200));
+      pm.test("Phone updated", () => pm.expect(pm.response.json().phoneNumber).to.eql("+60199999999"));
+    language: text/javascript
+order: 6000

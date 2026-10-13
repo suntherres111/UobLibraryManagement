@@ -1,0 +1,27 @@
+$kind: http-request
+url: "{{baseUrl}}/api/members"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "firstName": "Chen",
+      "lastName": "Postman",
+      "email": "{{member3Email}}",
+      "phoneNumber": "+60123456789",
+      "membershipType": "Premium"
+    }
+scripts:
+  - type: beforeRequest
+    code: pm.collectionVariables.set("member3Email", "chen.postman" + pm.collectionVariables.get("runId") + "@example.com");
+    language: text/javascript
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 201 Created", () => pm.response.to.have.status(201));
+      const j = pm.response.json();
+      pm.test("Premium tier limits", () => { pm.expect(j.maxActiveLoans).to.eql(10); pm.expect(j.loanPeriodDays).to.eql(30); });
+      if (pm.response.code < 300) { pm.collectionVariables.set("premiumMemberId", pm.response.json().id); }
+    language: text/javascript
+order: 3000

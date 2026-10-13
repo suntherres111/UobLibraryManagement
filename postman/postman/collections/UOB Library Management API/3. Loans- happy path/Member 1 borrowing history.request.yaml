@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{baseUrl}}/api/members/{{member1Id}}/loans"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 200 OK", () => pm.response.to.have.status(200));
+      pm.test("History contains the loan", () => pm.expect(pm.response.json().items.map(l => l.id)).to.include(Number(pm.collectionVariables.get("loanId"))));
+    language: text/javascript
+order: 5000

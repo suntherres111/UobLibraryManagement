@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{baseUrl}}/api/books?genre=Software Engineering&pageSize=50"
+method: GET
+queryParams:
+  genre: Software Engineering
+  pageSize: "50"
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 200 OK", () => pm.response.to.have.status(200));
+      pm.test("Every item has the requested genre", () => pm.response.json().items.forEach(b => pm.expect(b.genre).to.eql("Software Engineering")));
+    language: text/javascript
+order: 8000

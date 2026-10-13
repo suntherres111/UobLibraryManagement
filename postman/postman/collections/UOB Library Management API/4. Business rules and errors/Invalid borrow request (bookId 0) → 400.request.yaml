@@ -1,0 +1,19 @@
+$kind: http-request
+url: "{{baseUrl}}/api/loans"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "bookId": 0,
+      "memberId": 1
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 400 Bad Request", () => pm.response.to.have.status(400));
+      pm.test("Field-level validation errors returned", () => pm.expect(pm.response.json()).to.have.property("errors"));
+    language: text/javascript
+order: 17000

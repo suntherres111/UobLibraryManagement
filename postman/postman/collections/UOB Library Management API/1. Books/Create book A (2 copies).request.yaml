@@ -1,0 +1,37 @@
+$kind: http-request
+description: Creates the main test book. Starts with 2 copies; the update request below changes it to 3.
+url: "{{baseUrl}}/api/books"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "isbn": "{{isbnFormatted}}",
+      "title": "Postman Test Book A {{runId}}",
+      "author": "Postman Runner",
+      "publisher": "Test Publisher",
+      "genre": "Software Engineering",
+      "publishedYear": 2024,
+      "totalCopies": 2
+    }
+scripts:
+  - type: beforeRequest
+    code: |-
+      // Unique ISBN-13 per request, sent with a hyphen to prove the API normalises it
+      const digits = Array.from({ length: 10 }, () => Math.floor(Math.random() * 10)).join("");
+      pm.collectionVariables.set("isbnFormatted", "978-" + digits);
+      pm.collectionVariables.set("isbnNormalized", "978" + digits);
+    language: text/javascript
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 201 Created", () => pm.response.to.have.status(201));
+      const j = pm.response.json();
+      pm.test("Location header points to the new book", () => pm.expect(pm.response.headers.get("Location")).to.include("/api/books/" + j.id));
+      pm.test("ISBN was normalised (hyphen removed)", () => pm.expect(j.isbn).to.eql(pm.collectionVariables.get("isbnNormalized")));
+      pm.test("All copies available", () => { pm.expect(j.availableCopies).to.eql(2); pm.expect(j.isAvailable).to.be.true; });
+      if (pm.response.code < 300) { pm.collectionVariables.set("bookAId", pm.response.json().id); }
+      pm.collectionVariables.set("bookAIsbn", pm.collectionVariables.get("isbnFormatted"));
+    language: text/javascript
+order: 1000

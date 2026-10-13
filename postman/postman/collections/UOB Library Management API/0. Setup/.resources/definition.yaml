@@ -1,0 +1,3 @@
+$kind: collection
+description: Health check and a fresh run id.
+order: 1000

@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{baseUrl}}/api/members/{{member1Id}}"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 200 OK", () => pm.response.to.have.status(200));
+      pm.test("Full name combined", () => pm.expect(pm.response.json().fullName).to.eql("Alice Postman"));
+    language: text/javascript
+order: 4000

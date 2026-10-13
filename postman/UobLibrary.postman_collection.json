@@ -1,0 +1,2301 @@
+{
+  "info": {
+    "_postman_id": "f24e3cb2-07f0-439f-b968-b0861e2b0c2b",
+    "name": "UOB Library Management API",
+    "description": "End-to-end tests for the Library Management Web API (.NET 8).\n\n1. Start the API: `dotnet run --project src/LibraryManagement.Api` (http://localhost:5080).\n2. Select the **UOB Library API - Local** environment.\n3. Run the whole collection with the **Collection Runner**, in order.\n\nEach run creates its own books and members (unique ISBNs and emails from `runId`), so it can be run repeatedly and doesn't depend on the seed data. Ids are passed between requests through collection variables.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0. Setup",
+      "description": "Health check and a fresh run id.",
+      "item": [
+        {
+          "name": "Health check",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// New run id each time the collection runs, so test data never clashes with earlier runs",
+                  "pm.collectionVariables.set(\"runId\", String(Date.now()).slice(-8));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"API reports Healthy\", () => pm.expect(pm.response.text()).to.include(\"Healthy\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Run this first. It also generates a new runId used to make test data unique."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Books",
+      "description": "Create, read, search and update books. Creates books A–D used by later folders.",
+      "item": [
+        {
+          "name": "Create book A (2 copies)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Unique ISBN-13 per request, sent with a hyphen to prove the API normalises it",
+                  "const digits = Array.from({ length: 10 }, () => Math.floor(Math.random() * 10)).join(\"\");",
+                  "pm.collectionVariables.set(\"isbnFormatted\", \"978-\" + digits);",
+                  "pm.collectionVariables.set(\"isbnNormalized\", \"978\" + digits);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201 Created\", () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Location header points to the new book\", () => pm.expect(pm.response.headers.get(\"Location\")).to.include(\"/api/books/\" + j.id));",
+                  "pm.test(\"ISBN was normalised (hyphen removed)\", () => pm.expect(j.isbn).to.eql(pm.collectionVariables.get(\"isbnNormalized\")));",
+                  "pm.test(\"All copies available\", () => { pm.expect(j.availableCopies).to.eql(2); pm.expect(j.isAvailable).to.be.true; });",
+                  "if (pm.response.code < 300) { pm.collectionVariables.set(\"bookAId\", pm.response.json().id); }",
+                  "pm.collectionVariables.set(\"bookAIsbn\", pm.collectionVariables.get(\"isbnFormatted\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/books",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books"
+              ]
+            },
+            "description": "Creates the main test book. Starts with 2 copies; the update request below changes it to 3.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isbn\": \"{{isbnFormatted}}\",\n  \"title\": \"Postman Test Book A {{runId}}\",\n  \"author\": \"Postman Runner\",\n  \"publisher\": \"Test Publisher\",\n  \"genre\": \"Software Engineering\",\n  \"publishedYear\": 2024,\n  \"totalCopies\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Get book A by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Correct book returned\", () => pm.expect(pm.response.json().id).to.eql(Number(pm.collectionVariables.get(\"bookAId\"))));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/books/{{bookAId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books",
+                "{{bookAId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Search books (title, available only, paging)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Paged result shape\", () => { pm.expect(j).to.have.keys(\"items\", \"page\", \"pageSize\", \"totalCount\", \"totalPages\"); });",
+                  "pm.test(\"Finds exactly the book created in this run\", () => pm.expect(j.totalCount).to.eql(1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/books?search={{runId}}&availableOnly=true&page=1&pageSize=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "{{runId}}"
+                },
+                {
+                  "key": "availableOnly",
+                  "value": "true"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update book A (title + 3 copies)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Stock increased to 3\", () => { pm.expect(j.totalCopies).to.eql(3); pm.expect(j.availableCopies).to.eql(3); });",
+                  "pm.test(\"UpdatedAtUtc is set\", () => pm.expect(j.updatedAtUtc).to.not.be.null);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/books/{{bookAId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books",
+                "{{bookAId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman Test Book A (2nd edition) {{runId}}\",\n  \"author\": \"Postman Runner\",\n  \"publisher\": \"Test Publisher\",\n  \"genre\": \"Software Engineering\",\n  \"publishedYear\": 2025,\n  \"totalCopies\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create book B (1 copy)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Unique ISBN-13 per request, sent with a hyphen to prove the API normalises it",
+                  "const digits = Array.from({ length: 10 }, () => Math.floor(Math.random() * 10)).join(\"\");",
+                  "pm.collectionVariables.set(\"isbnFormatted\", \"978-\" + digits);",
+                  "pm.collectionVariables.set(\"isbnNormalized\", \"978\" + digits);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201 Created\", () => pm.response.to.have.status(201));",
+                  "if (pm.response.code < 300) { pm.collectionVariables.set(\"bookBId\", pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/books",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books"
+              ]
+            },
+            "description": "Single-copy book used for the 'no copies left' scenarios.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isbn\": \"{{isbnFormatted}}\",\n  \"title\": \"Postman Test Book B {{runId}}\",\n  \"author\": \"Postman Runner\",\n  \"publisher\": \"Test Publisher\",\n  \"genre\": \"Software Engineering\",\n  \"publishedYear\": 2024,\n  \"totalCopies\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create book C (1 copy)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Unique ISBN-13 per request, sent with a hyphen to prove the API normalises it",
+                  "const digits = Array.from({ length: 10 }, () => Math.floor(Math.random() * 10)).join(\"\");",
+                  "pm.collectionVariables.set(\"isbnFormatted\", \"978-\" + digits);",
+                  "pm.collectionVariables.set(\"isbnNormalized\", \"978\" + digits);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201 Created\", () => pm.response.to.have.status(201));",
+                  "if (pm.response.code < 300) { pm.collectionVariables.set(\"bookCId\", pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/books",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books"
+              ]
+            },
+            "description": "Used for the loan-limit scenario.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isbn\": \"{{isbnFormatted}}\",\n  \"title\": \"Postman Test Book C {{runId}}\",\n  \"author\": \"Postman Runner\",\n  \"publisher\": \"Test Publisher\",\n  \"genre\": \"Software Engineering\",\n  \"publishedYear\": 2024,\n  \"totalCopies\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create book D (1 copy)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Unique ISBN-13 per request, sent with a hyphen to prove the API normalises it",
+                  "const digits = Array.from({ length: 10 }, () => Math.floor(Math.random() * 10)).join(\"\");",
+                  "pm.collectionVariables.set(\"isbnFormatted\", \"978-\" + digits);",
+                  "pm.collectionVariables.set(\"isbnNormalized\", \"978\" + digits);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201 Created\", () => pm.response.to.have.status(201));",
+                  "if (pm.response.code < 300) { pm.collectionVariables.set(\"bookDId\", pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/books",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books"
+              ]
+            },
+            "description": "Used for the loan-limit scenario and the soft-delete check.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isbn\": \"{{isbnFormatted}}\",\n  \"title\": \"Postman Test Book D {{runId}}\",\n  \"author\": \"Postman Runner\",\n  \"publisher\": \"Test Publisher\",\n  \"genre\": \"Software Engineering\",\n  \"publishedYear\": 2024,\n  \"totalCopies\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List books by genre",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Every item has the requested genre\", () => pm.response.json().items.forEach(b => pm.expect(b.genre).to.eql(\"Software Engineering\")));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/books?genre=Software Engineering&pageSize=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books"
+              ],
+              "query": [
+                {
+                  "key": "genre",
+                  "value": "Software Engineering"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Members",
+      "description": "Register Standard and Premium members, read, search and update.",
+      "item": [
+        {
+          "name": "Register member 1 (Standard)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"member1Email\", \"Alice.Postman\" + pm.collectionVariables.get(\"runId\") + \"@Example.com\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201 Created\", () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Email normalised to lower case\", () => pm.expect(j.email).to.eql(pm.collectionVariables.get(\"member1Email\").toLowerCase()));",
+                  "pm.test(\"Standard tier limits\", () => { pm.expect(j.membershipType).to.eql(\"Standard\"); pm.expect(j.maxActiveLoans).to.eql(3); pm.expect(j.loanPeriodDays).to.eql(14); });",
+                  "if (pm.response.code < 300) { pm.collectionVariables.set(\"member1Id\", pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/members",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "members"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Alice\",\n  \"lastName\": \"Postman\",\n  \"email\": \"{{member1Email}}\",\n  \"phoneNumber\": \"+60123456789\",\n  \"membershipType\": \"Standard\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Register member 2 (Standard)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"member2Email\", \"bob.postman\" + pm.collectionVariables.get(\"runId\") + \"@example.com\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201 Created\", () => pm.response.to.have.status(201));",
+                  "if (pm.response.code < 300) { pm.collectionVariables.set(\"member2Id\", pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/members",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "members"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Bob\",\n  \"lastName\": \"Postman\",\n  \"email\": \"{{member2Email}}\",\n  \"phoneNumber\": \"+60123456789\",\n  \"membershipType\": \"Standard\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Register member 3 (Premium)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"member3Email\", \"chen.postman\" + pm.collectionVariables.get(\"runId\") + \"@example.com\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201 Created\", () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Premium tier limits\", () => { pm.expect(j.maxActiveLoans).to.eql(10); pm.expect(j.loanPeriodDays).to.eql(30); });",
+                  "if (pm.response.code < 300) { pm.collectionVariables.set(\"premiumMemberId\", pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/members",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "members"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Chen\",\n  \"lastName\": \"Postman\",\n  \"email\": \"{{member3Email}}\",\n  \"phoneNumber\": \"+60123456789\",\n  \"membershipType\": \"Premium\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Get member 1 by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Full name combined\", () => pm.expect(pm.response.json().fullName).to.eql(\"Alice Postman\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/members/{{member1Id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "members",
+                "{{member1Id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Search members",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Finds the 3 members created in this run\", () => pm.expect(pm.response.json().totalCount).to.eql(3));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/members?search={{runId}}&page=1&pageSize=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "members"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "{{runId}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update member 1 (new phone number)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Phone updated\", () => pm.expect(pm.response.json().phoneNumber).to.eql(\"+60199999999\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/members/{{member1Id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "members",
+                "{{member1Id}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Alice\",\n  \"lastName\": \"Postman\",\n  \"email\": \"{{member1Email}}\",\n  \"phoneNumber\": \"+60199999999\",\n  \"membershipType\": \"Standard\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Loans: happy path",
+      "description": "Borrow, check stock, list, history and return.",
+      "item": [
+        {
+          "name": "Borrow book A (member 1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201 Created\", () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Status is Active\", () => pm.expect(j.status).to.eql(\"Active\"));",
+                  "pm.test(\"Due date = borrow date + 14 days\", () => {",
+                  "    const days = (new Date(j.dueAtUtc) - new Date(j.borrowedAtUtc)) / 86400000;",
+                  "    pm.expect(Math.round(days)).to.eql(14);",
+                  "});",
+                  "pm.test(\"Location header points to the loan\", () => pm.expect(pm.response.headers.get(\"Location\")).to.include(\"/api/loans/\"));",
+                  "if (pm.response.code < 300) { pm.collectionVariables.set(\"loanId\", pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookId\": {{bookAId}},\n  \"memberId\": {{member1Id}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Get loan by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Loan is Active and not overdue\", () => { pm.expect(j.status).to.eql(\"Active\"); pm.expect(j.daysOverdue).to.eql(0); });",
+                  "pm.test(\"Includes book and member names\", () => { pm.expect(j.bookTitle).to.include(\"Postman Test Book A\"); pm.expect(j.memberName).to.eql(\"Alice Postman\"); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans/{{loanId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans",
+                "{{loanId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Book A stock after borrowing",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"One copy is out (3 → 2)\", () => pm.expect(pm.response.json().availableCopies).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/books/{{bookAId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books",
+                "{{bookAId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List active loans for member 1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Exactly one active loan\", () => pm.expect(pm.response.json().totalCount).to.eql(1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans?memberId={{member1Id}}&status=Active",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans"
+              ],
+              "query": [
+                {
+                  "key": "memberId",
+                  "value": "{{member1Id}}"
+                },
+                {
+                  "key": "status",
+                  "value": "Active"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Member 1 borrowing history",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"History contains the loan\", () => pm.expect(pm.response.json().items.map(l => l.id)).to.include(Number(pm.collectionVariables.get(\"loanId\"))));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/members/{{member1Id}}/loans",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "members",
+                "{{member1Id}}",
+                "loans"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Borrow book A (Premium member: 30-day loan)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201 Created\", () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Status is Active\", () => pm.expect(j.status).to.eql(\"Active\"));",
+                  "pm.test(\"Due date = borrow date + 30 days\", () => {",
+                  "    const days = (new Date(j.dueAtUtc) - new Date(j.borrowedAtUtc)) / 86400000;",
+                  "    pm.expect(Math.round(days)).to.eql(30);",
+                  "});",
+                  "if (pm.response.code < 300) { pm.collectionVariables.set(\"premiumLoanId\", pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookId\": {{bookAId}},\n  \"memberId\": {{premiumMemberId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Return book A (member 1, on time)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Status is Returned\", () => pm.expect(j.status).to.eql(\"Returned\"));",
+                  "pm.test(\"Returned on time: no fine\", () => pm.expect(j.fineAmount).to.eql(0));",
+                  "pm.test(\"ReturnedAtUtc is set\", () => pm.expect(j.returnedAtUtc).to.not.be.null);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans/{{loanId}}/return",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans",
+                "{{loanId}}",
+                "return"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Book A stock after return",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Copy is back (Premium loan still out): 2 available\", () => pm.expect(pm.response.json().availableCopies).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/books/{{bookAId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books",
+                "{{bookAId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Return book A (Premium member)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Status is Returned\", () => pm.expect(pm.response.json().status).to.eql(\"Returned\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans/{{premiumLoanId}}/return",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans",
+                "{{premiumLoanId}}",
+                "return"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List returned loans for member 1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"One returned loan\", () => pm.expect(pm.response.json().totalCount).to.eql(1));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans?memberId={{member1Id}}&status=Returned",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans"
+              ],
+              "query": [
+                {
+                  "key": "memberId",
+                  "value": "{{member1Id}}"
+                },
+                {
+                  "key": "status",
+                  "value": "Returned"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List overdue loans",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Every item is Overdue\", () => pm.response.json().items.forEach(l => pm.expect(l.status).to.eql(\"Overdue\")));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans?status=Overdue",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "Overdue"
+                }
+              ]
+            },
+            "description": "Overdue can't be created from Postman without waiting 14+ days, so this only checks that the filter works. Overdue rules are covered by the automated tests (TestClock)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Business rules and errors",
+      "description": "Each request expects a specific HTTP status and error code.",
+      "item": [
+        {
+          "name": "Borrow book B, its only copy (member 1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201 Created\", () => pm.response.to.have.status(201));",
+                  "if (pm.response.code < 300) { pm.collectionVariables.set(\"loanBId\", pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookId\": {{bookBId}},\n  \"memberId\": {{member1Id}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "No copies left → 409 BOOK_UNAVAILABLE",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409 Conflict\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"Error code is BOOK_UNAVAILABLE\", () => pm.expect(pm.response.json().code).to.eql(\"BOOK_UNAVAILABLE\"));",
+                  "pm.test(\"Response is ProblemDetails\", () => {",
+                  "    const j = pm.response.json();",
+                  "    pm.expect(j).to.have.property(\"title\");",
+                  "    pm.expect(j).to.have.property(\"traceId\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans"
+              ]
+            },
+            "description": "Member 2 tries to borrow book B while member 1 holds the only copy.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookId\": {{bookBId}},\n  \"memberId\": {{member2Id}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Same book twice → 409 BOOK_ALREADY_BORROWED_BY_MEMBER",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409 Conflict\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"Error code is BOOK_ALREADY_BORROWED_BY_MEMBER\", () => pm.expect(pm.response.json().code).to.eql(\"BOOK_ALREADY_BORROWED_BY_MEMBER\"));",
+                  "pm.test(\"Response is ProblemDetails\", () => {",
+                  "    const j = pm.response.json();",
+                  "    pm.expect(j).to.have.property(\"title\");",
+                  "    pm.expect(j).to.have.property(\"traceId\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans"
+              ]
+            },
+            "description": "Member 1 already holds book B. This rule is checked before availability, so this is the code you get.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookId\": {{bookBId}},\n  \"memberId\": {{member1Id}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Deactivate member holding books → 409 MEMBER_HAS_ACTIVE_LOANS",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409 Conflict\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"Error code is MEMBER_HAS_ACTIVE_LOANS\", () => pm.expect(pm.response.json().code).to.eql(\"MEMBER_HAS_ACTIVE_LOANS\"));",
+                  "pm.test(\"Response is ProblemDetails\", () => {",
+                  "    const j = pm.response.json();",
+                  "    pm.expect(j).to.have.property(\"title\");",
+                  "    pm.expect(j).to.have.property(\"traceId\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/members/{{member1Id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "members",
+                "{{member1Id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Retire a book that is on loan → 409 BOOK_HAS_ACTIVE_LOANS",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409 Conflict\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"Error code is BOOK_HAS_ACTIVE_LOANS\", () => pm.expect(pm.response.json().code).to.eql(\"BOOK_HAS_ACTIVE_LOANS\"));",
+                  "pm.test(\"Response is ProblemDetails\", () => {",
+                  "    const j = pm.response.json();",
+                  "    pm.expect(j).to.have.property(\"title\");",
+                  "    pm.expect(j).to.have.property(\"traceId\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/books/{{bookBId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books",
+                "{{bookBId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Loan limit: 2nd book (A) for member 1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201 Created\", () => pm.response.to.have.status(201));",
+                  "if (pm.response.code < 300) { pm.collectionVariables.set(\"loanAId\", pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookId\": {{bookAId}},\n  \"memberId\": {{member1Id}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Loan limit: 3rd book (C) for member 1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201 Created\", () => pm.response.to.have.status(201));",
+                  "if (pm.response.code < 300) { pm.collectionVariables.set(\"loanCId\", pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans"
+              ]
+            },
+            "description": "Member 1 now holds 3 books (B, A, C): the Standard limit.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookId\": {{bookCId}},\n  \"memberId\": {{member1Id}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "4th book for a Standard member → 409 LOAN_LIMIT_REACHED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409 Conflict\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"Error code is LOAN_LIMIT_REACHED\", () => pm.expect(pm.response.json().code).to.eql(\"LOAN_LIMIT_REACHED\"));",
+                  "pm.test(\"Response is ProblemDetails\", () => {",
+                  "    const j = pm.response.json();",
+                  "    pm.expect(j).to.have.property(\"title\");",
+                  "    pm.expect(j).to.have.property(\"traceId\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookId\": {{bookDId}},\n  \"memberId\": {{member1Id}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Return an already-returned loan → 409 LOAN_ALREADY_RETURNED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409 Conflict\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"Error code is LOAN_ALREADY_RETURNED\", () => pm.expect(pm.response.json().code).to.eql(\"LOAN_ALREADY_RETURNED\"));",
+                  "pm.test(\"Response is ProblemDetails\", () => {",
+                  "    const j = pm.response.json();",
+                  "    pm.expect(j).to.have.property(\"title\");",
+                  "    pm.expect(j).to.have.property(\"traceId\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans/{{loanId}}/return",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans",
+                "{{loanId}}",
+                "return"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Deactivate member 2 (no loans) → 204",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 204 No Content\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/members/{{member2Id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "members",
+                "{{member2Id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Inactive member borrows → 409 MEMBER_INACTIVE",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409 Conflict\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"Error code is MEMBER_INACTIVE\", () => pm.expect(pm.response.json().code).to.eql(\"MEMBER_INACTIVE\"));",
+                  "pm.test(\"Response is ProblemDetails\", () => {",
+                  "    const j = pm.response.json();",
+                  "    pm.expect(j).to.have.property(\"title\");",
+                  "    pm.expect(j).to.have.property(\"traceId\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookId\": {{bookAId}},\n  \"memberId\": {{member2Id}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Reactivate member 2",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Member is active again\", () => pm.expect(pm.response.json().isActive).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/members/{{member2Id}}/reactivate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "members",
+                "{{member2Id}}",
+                "reactivate"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Duplicate ISBN → 409 DUPLICATE_ISBN",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409 Conflict\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"Error code is DUPLICATE_ISBN\", () => pm.expect(pm.response.json().code).to.eql(\"DUPLICATE_ISBN\"));",
+                  "pm.test(\"Response is ProblemDetails\", () => {",
+                  "    const j = pm.response.json();",
+                  "    pm.expect(j).to.have.property(\"title\");",
+                  "    pm.expect(j).to.have.property(\"traceId\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/books",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isbn\": \"{{bookAIsbn}}\",\n  \"title\": \"Postman Test Book Duplicate {{runId}}\",\n  \"author\": \"Postman Runner\",\n  \"publisher\": \"Test Publisher\",\n  \"genre\": \"Software Engineering\",\n  \"publishedYear\": 2024,\n  \"totalCopies\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Duplicate email → 409 DUPLICATE_EMAIL",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409 Conflict\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"Error code is DUPLICATE_EMAIL\", () => pm.expect(pm.response.json().code).to.eql(\"DUPLICATE_EMAIL\"));",
+                  "pm.test(\"Response is ProblemDetails\", () => {",
+                  "    const j = pm.response.json();",
+                  "    pm.expect(j).to.have.property(\"title\");",
+                  "    pm.expect(j).to.have.property(\"traceId\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/members",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "members"
+              ]
+            },
+            "description": "Same email as member 1 (different letter case): emails are compared after normalising to lower case.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Copy\",\n  \"lastName\": \"Cat\",\n  \"email\": \"{{member1Email}}\",\n  \"membershipType\": \"Standard\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Invalid ISBN → 400 VALIDATION_ERROR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Error code is VALIDATION_ERROR\", () => pm.expect(pm.response.json().code).to.eql(\"VALIDATION_ERROR\"));",
+                  "pm.test(\"Response is ProblemDetails\", () => {",
+                  "    const j = pm.response.json();",
+                  "    pm.expect(j).to.have.property(\"title\");",
+                  "    pm.expect(j).to.have.property(\"traceId\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/books",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books"
+              ]
+            },
+            "description": "Passes the DTO's length check, then the Book entity rejects the format (domain validation).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isbn\": \"978-ABC-123456\",\n  \"title\": \"Postman Test Book Bad ISBN {{runId}}\",\n  \"author\": \"Postman Runner\",\n  \"publisher\": \"Test Publisher\",\n  \"genre\": \"Software Engineering\",\n  \"publishedYear\": 2024,\n  \"totalCopies\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Missing title → 400 (model validation)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Field-level validation errors returned\", () => pm.expect(pm.response.json()).to.have.property(\"errors\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/books",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books"
+              ]
+            },
+            "description": "Rejected automatically by [ApiController] before reaching the service: ValidationProblemDetails with an errors object.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isbn\": \"9781234567897\",\n  \"title\": \"\",\n  \"author\": \"Someone\",\n  \"publishedYear\": 2024,\n  \"totalCopies\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Invalid borrow request (bookId 0) → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400 Bad Request\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Field-level validation errors returned\", () => pm.expect(pm.response.json()).to.have.property(\"errors\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookId\": 0,\n  \"memberId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Unknown book → 404 NOT_FOUND",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404 Not Found\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"Error code is NOT_FOUND\", () => pm.expect(pm.response.json().code).to.eql(\"NOT_FOUND\"));",
+                  "pm.test(\"Response is ProblemDetails\", () => {",
+                  "    const j = pm.response.json();",
+                  "    pm.expect(j).to.have.property(\"title\");",
+                  "    pm.expect(j).to.have.property(\"traceId\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/books/999999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books",
+                "999999999"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Borrow for unknown member → 404 NOT_FOUND",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404 Not Found\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"Error code is NOT_FOUND\", () => pm.expect(pm.response.json().code).to.eql(\"NOT_FOUND\"));",
+                  "pm.test(\"Response is ProblemDetails\", () => {",
+                  "    const j = pm.response.json();",
+                  "    pm.expect(j).to.have.property(\"title\");",
+                  "    pm.expect(j).to.have.property(\"traceId\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookId\": {{bookAId}},\n  \"memberId\": {{unknownId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Cleanup and soft delete",
+      "description": "Returns the remaining loans, then shows that retire/deactivate are soft deletes.",
+      "item": [
+        {
+          "name": "Return book B (member 1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans/{{loanBId}}/return",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans",
+                "{{loanBId}}",
+                "return"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Return book A (member 1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans/{{loanAId}}/return",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans",
+                "{{loanAId}}",
+                "return"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Return book C (member 1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/loans/{{loanCId}}/return",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "loans",
+                "{{loanCId}}",
+                "return"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Retire book D → 204 (soft delete)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 204 No Content\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/books/{{bookDId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books",
+                "{{bookDId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Retired book still exists but is inactive",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"IsActive is false (history kept)\", () => pm.expect(pm.response.json().isActive).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/books/{{bookDId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "books",
+                "{{bookDId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Deactivate member 1 → 204 (all books returned)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 204 No Content\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/members/{{member1Id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "members",
+                "{{member1Id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Inactive members are hidden from the default list",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Only 2 active members remain from this run\", () => pm.expect(pm.response.json().totalCount).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/members?search={{runId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "members"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "{{runId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "…but shown with includeInactive=true",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"All 3 members returned\", () => pm.expect(pm.response.json().totalCount).to.eql(3));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/members?search={{runId}}&includeInactive=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "members"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "{{runId}}"
+                },
+                {
+                  "key": "includeInactive",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5080"
+    },
+    {
+      "key": "runId",
+      "value": ""
+    },
+    {
+      "key": "isbnFormatted",
+      "value": ""
+    },
+    {
+      "key": "isbnNormalized",
+      "value": ""
+    },
+    {
+      "key": "bookAIsbn",
+      "value": ""
+    },
+    {
+      "key": "bookAId",
+      "value": ""
+    },
+    {
+      "key": "bookBId",
+      "value": ""
+    },
+    {
+      "key": "bookCId",
+      "value": ""
+    },
+    {
+      "key": "bookDId",
+      "value": ""
+    },
+    {
+      "key": "member1Email",
+      "value": ""
+    },
+    {
+      "key": "member2Email",
+      "value": ""
+    },
+    {
+      "key": "member3Email",
+      "value": ""
+    },
+    {
+      "key": "member1Id",
+      "value": ""
+    },
+    {
+      "key": "member2Id",
+      "value": ""
+    },
+    {
+      "key": "premiumMemberId",
+      "value": ""
+    },
+    {
+      "key": "loanId",
+      "value": ""
+    },
+    {
+      "key": "premiumLoanId",
+      "value": ""
+    },
+    {
+      "key": "loanBId",
+      "value": ""
+    },
+    {
+      "key": "loanAId",
+      "value": ""
+    },
+    {
+      "key": "loanCId",
+      "value": ""
+    },
+    {
+      "key": "unknownId",
+      "value": "999999999"
+    }
+  ]
+}

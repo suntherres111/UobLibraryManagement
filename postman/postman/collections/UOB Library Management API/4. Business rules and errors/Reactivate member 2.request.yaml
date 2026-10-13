@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{baseUrl}}/api/members/{{member2Id}}/reactivate"
+method: POST
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Status is 200 OK", () => pm.response.to.have.status(200));
+      pm.test("Member is active again", () => pm.expect(pm.response.json().isActive).to.be.true);
+    language: text/javascript
+order: 12000
